@@ -22,10 +22,7 @@
 body {
   min-height: 100vh;
   margin: 0;
-  background:
-    linear-gradient(90deg, rgba(0, 129, 204, 0.08) 0 1px, transparent 1px 100%),
-    var(--bg);
-  background-size: 40px 40px;
+  background: var(--bg);
   color: var(--text);
   font-family:
     Arial, Helvetica, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
@@ -62,34 +59,24 @@ button:disabled {
 
 .topbar {
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: 190px 1fr;
   align-items: stretch;
   margin-bottom: 16px;
-  border-top: 6px solid var(--ntn-blue);
+  border-top: 5px solid var(--ntn-blue);
 }
 
 .brand-block {
   display: flex;
-  flex-direction: column;
   justify-content: center;
-  gap: 6px;
   border-right: 1px solid var(--line);
-  padding: 18px;
+  padding: 16px;
   background: #fbfcfd;
 }
 
 .brand-block img {
   display: block;
-  width: 150px;
+  width: 135px;
   height: auto;
-}
-
-.brand-block span {
-  color: var(--muted);
-  font-size: 0.78rem;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
 }
 
 .topbar-main {
@@ -153,15 +140,15 @@ button:focus-visible {
 }
 
 .day-card {
-  padding: 20px;
-  border-left: 6px solid var(--ntn-blue);
+  padding: 18px;
 }
 
 .focus-row,
 .summary-row {
   display: grid;
   gap: 0;
-  border: 1px solid var(--line);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
 }
 
 .focus-row {
@@ -171,8 +158,8 @@ button:focus-visible {
 
 .focus-row > div,
 .summary-row > div {
-  padding: 14px;
-  background: var(--surface-cool);
+  padding: 13px 14px;
+  background: #fff;
 }
 
 .focus-row > div + div,
@@ -186,14 +173,14 @@ button:focus-visible {
   color: var(--muted);
   font-size: 0.76rem;
   font-weight: 800;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
 .focus-row strong {
   display: block;
   color: var(--text);
-  font-size: 2rem;
+  font-size: 1.85rem;
   line-height: 1;
 }
 
@@ -204,13 +191,39 @@ button:focus-visible {
 }
 
 .target-input input {
-  width: 92px;
+  width: 64px;
   border-color: var(--ntn-blue);
 }
 
 .target-input span {
   color: var(--muted);
   font-weight: 800;
+}
+
+.target-input input:disabled {
+  border-color: var(--line-strong);
+  background: #edf2f5;
+  color: var(--muted);
+}
+
+.lock-button {
+  min-width: 82px;
+  height: 42px;
+  border: 1px solid var(--line-strong);
+  background: #fff;
+  color: var(--text);
+  font-weight: 800;
+}
+
+.lock-button:hover {
+  border-color: var(--ntn-blue);
+  color: var(--ntn-blue-dark);
+}
+
+.lock-button.unlocked {
+  border-color: var(--ntn-blue);
+  background: #edf7fc;
+  color: var(--ntn-blue-dark);
 }
 
 .primary-button,
@@ -261,7 +274,7 @@ button:focus-visible {
 }
 
 .next-line {
-  margin: 10px 0 18px;
+  margin: 10px 0 14px;
   color: var(--muted);
 }
 
@@ -270,7 +283,7 @@ button:focus-visible {
 }
 
 .punch-list {
-  border-top: 2px solid var(--text);
+  border-top: 1px solid var(--line);
 }
 
 .punch-row {
@@ -284,18 +297,15 @@ button:focus-visible {
 }
 
 .punch-row label {
-  border-left: 4px solid transparent;
-  padding-left: 10px;
   font-weight: 800;
 }
 
 .punch-row.current label {
-  border-left-color: var(--ntn-blue);
   color: var(--ntn-blue-dark);
 }
 
 .punch-row.complete {
-  background: linear-gradient(90deg, rgba(0, 129, 204, 0.06), transparent 55%);
+  background: #f8fbfd;
 }
 
 .summary-row {
@@ -329,7 +339,7 @@ button:focus-visible {
 
 .status-message {
   margin-top: 14px;
-  border-left: 5px solid var(--ntn-blue);
+  border-left: 4px solid var(--ntn-blue);
   background: #edf7fc;
   padding: 12px 14px;
   color: #1e4d63;
@@ -369,7 +379,7 @@ button:focus-visible {
 .section-heading {
   justify-content: space-between;
   margin-bottom: 12px;
-  border-bottom: 2px solid var(--text);
+  border-bottom: 1px solid var(--line);
   padding-bottom: 10px;
 }
 
@@ -395,7 +405,7 @@ th {
   color: var(--muted);
   font-size: 0.76rem;
   font-weight: 900;
-  letter-spacing: 0.06em;
+  letter-spacing: 0;
   text-transform: uppercase;
 }
 
@@ -482,9 +492,19 @@ tbody tr:last-child td {
     font-size: 1.7rem;
   }
 
+  .target-input {
+    display: grid;
+    grid-template-columns: 1fr auto;
+  }
+
+  .target-input .lock-button {
+    grid-column: 1 / -1;
+  }
+
   .punch-row input,
   .target-input input,
   .punch-row button,
+  .target-input .lock-button,
   .date-actions input,
   .date-actions button,
   .panel-actions button,

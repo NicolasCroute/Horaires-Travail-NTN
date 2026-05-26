@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Mes horaires</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="styles.css" />
     <script defer src="app.js"></script>
   </head>
@@ -12,13 +13,11 @@
       <header class="topbar">
         <div class="brand-block">
           <img src="assets/ntn-logo.png" alt="NTN Europe" />
-          <span>Europe</span>
         </div>
 
         <div class="topbar-main">
           <div>
-            <h1>Badgeage horaires</h1>
-            <p>Portail interne</p>
+            <h1>Badgeage</h1>
           </div>
 
           <div class="date-actions">
@@ -37,8 +36,11 @@
           <div>
             <label class="label" for="target-hours">À faire</label>
             <div class="target-input">
-              <input id="target-hours" type="number" min="0.25" max="24" step="0.25" inputmode="decimal" />
+              <input id="target-hours" type="number" min="0" max="24" step="1" inputmode="numeric" disabled />
               <span>h</span>
+              <input id="target-minutes" type="number" min="0" max="59" step="5" inputmode="numeric" disabled />
+              <span>min</span>
+              <button id="target-lock" class="lock-button" type="button">Modifier</button>
             </div>
           </div>
           <div>
