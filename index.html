@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Mes horaires</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="app.js"></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand-block">
+          <img src="assets/ntn-logo.png" alt="NTN Europe" />
+          <span>Europe</span>
+        </div>
+
+        <div class="topbar-main">
+          <div>
+            <h1>Badgeage horaires</h1>
+            <p>Portail interne</p>
+          </div>
+
+          <div class="date-actions">
+            <input id="work-date" type="date" aria-label="Journée" />
+            <button id="today-button" type="button" class="ghost-button">Aujourd'hui</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="day-card">
+        <section class="focus-row" aria-live="polite">
+          <div>
+            <span class="label">Maintenant</span>
+            <strong id="live-clock">--:--</strong>
+          </div>
+          <div>
+            <label class="label" for="target-hours">À faire</label>
+            <div class="target-input">
+              <input id="target-hours" type="number" min="0.25" max="24" step="0.25" inputmode="decimal" />
+              <span>h</span>
+            </div>
+          </div>
+          <div>
+            <span class="label">Départ conseillé</span>
+            <strong id="target-time">--:--</strong>
+          </div>
+        </section>
+
+        <button id="quick-punch" class="primary-button" type="button">Badger maintenant</button>
+        <p class="next-line">Prochain badge: <strong id="next-punch">Arrivée</strong></p>
+
+        <section class="punch-list" aria-label="Heures de la journée">
+          <div class="punch-row" data-field-row="arrival">
+            <label for="arrival">Arrivée</label>
+            <input id="arrival" data-field="arrival" type="time" />
+            <button type="button" class="secondary-button" data-punch="arrival">Maintenant</button>
+          </div>
+
+          <div class="punch-row" data-field-row="lunchOut">
+            <label for="lunchOut">Départ repas</label>
+            <input id="lunchOut" data-field="lunchOut" type="time" />
+            <button type="button" class="secondary-button" data-punch="lunchOut">Maintenant</button>
+          </div>
+
+          <div class="punch-row" data-field-row="lunchIn">
+            <label for="lunchIn">Retour repas</label>
+            <input id="lunchIn" data-field="lunchIn" type="time" />
+            <button type="button" class="secondary-button" data-punch="lunchIn">Maintenant</button>
+          </div>
+
+          <div class="punch-row" data-field-row="departure">
+            <label for="departure">Départ boulot</label>
+            <input id="departure" data-field="departure" type="time" />
+            <button type="button" class="secondary-button" data-punch="departure">Maintenant</button>
+          </div>
+        </section>
+
+        <section class="summary-row" aria-label="Résumé de la journée">
+          <div>
+            <span class="label">Travaillé</span>
+            <strong id="worked-time">0h00</strong>
+          </div>
+          <div>
+            <span class="label">Restant</span>
+            <strong id="remaining-time">8h00</strong>
+          </div>
+          <div>
+            <span class="label">Pause midi</span>
+            <strong id="lunch-time">--</strong>
+          </div>
+        </section>
+
+        <div class="progress-shell" aria-label="Progression vers l'objectif du jour">
+          <div id="progress-bar" class="progress-bar"></div>
+        </div>
+
+        <p id="status-message" class="status-message">Prêt à badger l'arrivée.</p>
+
+        <div class="panel-actions">
+          <button id="undo-button" type="button" class="ghost-button">Annuler</button>
+          <button id="clear-button" type="button" class="danger-button">Effacer la journée</button>
+        </div>
+      </main>
+
+      <section class="history-section">
+        <div class="section-heading">
+          <h2>Historique</h2>
+          <button id="export-button" type="button" class="ghost-button">Exporter CSV</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Arrivée</th>
+                <th>Repas</th>
+                <th>Retour</th>
+                <th>Départ</th>
+                <th>Objectif</th>
+                <th>Total</th>
+                <th>Écart</th>
+              </tr>
+            </thead>
+            <tbody id="history-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>
