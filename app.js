@@ -29,6 +29,8 @@ const elements = {
   liveClock: document.querySelector("#live-clock"),
   nextPunch: document.querySelector("#next-punch"),
   targetHours: document.querySelector("#target-hours"),
+  targetMinutes: document.querySelector("#target-minutes"),
+  targetLock: document.querySelector("#target-lock"),
   workedTime: document.querySelector("#worked-time"),
   remainingTime: document.querySelector("#remaining-time"),
   lunchTime: document.querySelector("#lunch-time"),
@@ -43,6 +45,7 @@ const elements = {
 
 let records = loadRecords();
 let selectedDate = todayISO();
+let isTargetLocked = true;
 
 function loadRecords() {
   try {
@@ -135,13 +138,18 @@ function formatDelta(totalMinutes) {
   return `${totalMinutes > 0 ? "+" : "-"}${formatDuration(Math.abs(totalMinutes))}`;
 }
 
-function parseTargetHours(value) {
-  const hours = Number.parseFloat(String(value).replace(",", "."));
-  if (!Number.isFinite(hours) || hours <= 0) {
+function parseTargetDuration(hoursValue, minutesValue) {
+  const hours = Number.parseInt(hoursValue, 10);
+  const minutes = Number.parseInt(minutesValue, 10);
+  const safeHours = Number.isFinite(hours) ? Math.min(Math.max(hours, 0), 24) : 0;
+  const safeMinutes = Number.isFinite(minutes) ? Math.min(Math.max(minutes, 0), 59) : 0;
+  const totalMinutes = safeHours * 60 + safeMinutes;
+
+  if (totalMinutes <= 0) {
     return DEFAULT_TARGET_MINUTES;
   }
 
-  return Math.round(hours * 60);
+  return totalMinutes;
 }
 
 function getTargetMinutes(record) {
@@ -153,8 +161,23 @@ function getTargetMinutes(record) {
   return Math.round(targetMinutes);
 }
 
-function targetMinutesToInputValue(targetMinutes) {
-  return Number((targetMinutes / 60).toFixed(2)).toString();
+function targetMinutesToInputParts(targetMinutes) {
+  return {
+    hours: String(Math.floor(targetMinutes / 60)),
+    minutes: String(targetMinutes % 60),
+  };
+}
+
+function syncTargetLock() {
+  elements.targetHours.disabled = isTargetLocked;
+  elements.targetMinutes.disabled = isTargetLocked;
+  elements.targetLock.classList.toggle("unlocked", !isTargetLocked);
+  elements.targetLock.setAttribute(
+    "aria-label",
+    isTargetLocked ? "Déverrouiller l'objectif" : "Verrouiller l'objectif",
+  );
+  elements.targetLock.title = isTargetLocked ? "Déverrouiller l'objectif" : "Verrouiller l'objectif";
+  elements.targetLock.textContent = isTargetLocked ? "Modifier" : "OK";
 }
 
 function dateLabel(dateISO) {
@@ -372,7 +395,10 @@ function render() {
 
   elements.dateInput.value = selectedDate;
   elements.liveClock.textContent = nowHM();
-  elements.targetHours.value = targetMinutesToInputValue(info.targetMinutes);
+  const targetInputParts = targetMinutesToInputParts(info.targetMinutes);
+  elements.targetHours.value = targetInputParts.hours;
+  elements.targetMinutes.value = targetInputParts.minutes;
+  syncTargetLock();
   elements.nextPunch.textContent = currentField ? currentField.label : "Journée complète";
   elements.quickPunch.disabled = !currentField;
   elements.quickPunch.textContent = currentField
@@ -450,10 +476,22 @@ function setField(key, value) {
   render();
 }
 
-function setTargetHours(value) {
-  const record = { ...getRecord(), targetMinutes: parseTargetHours(value) };
+function setTargetDuration() {
+  const record = {
+    ...getRecord(),
+    targetMinutes: parseTargetDuration(elements.targetHours.value, elements.targetMinutes.value),
+  };
   setRecord(selectedDate, record);
   render();
+}
+
+function toggleTargetLock() {
+  isTargetLocked = !isTargetLocked;
+  syncTargetLock();
+
+  if (!isTargetLocked) {
+    elements.targetHours.focus();
+  }
 }
 
 function punchField(key) {
@@ -530,18 +568,20 @@ function exportCsv() {
 function bindEvents() {
   elements.dateInput.addEventListener("change", (event) => {
     selectedDate = event.target.value || todayISO();
+    isTargetLocked = true;
     render();
   });
 
   elements.todayButton.addEventListener("click", () => {
     selectedDate = todayISO();
+    isTargetLocked = true;
     render();
   });
 
   elements.quickPunch.addEventListener("click", quickPunch);
-  elements.targetHours.addEventListener("change", (event) => {
-    setTargetHours(event.target.value);
-  });
+  elements.targetHours.addEventListener("change", setTargetDuration);
+  elements.targetMinutes.addEventListener("change", setTargetDuration);
+  elements.targetLock.addEventListener("click", toggleTargetLock);
   elements.undoButton.addEventListener("click", undoLastPunch);
   elements.clearButton.addEventListener("click", clearDay);
   elements.exportButton.addEventListener("click", exportCsv);
@@ -565,6 +605,7 @@ function bindEvents() {
     }
 
     selectedDate = row.dataset.date;
+    isTargetLocked = true;
     render();
     window.scrollTo({ top: 0, behavior: "smooth" });
   });
