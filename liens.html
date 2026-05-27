@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Liens rapides</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body data-page="links">
+    <div class="app">
+      <header class="topbar">
+        <img src="assets/ntn-logo.png" alt="NTN Europe" />
+      </header>
+
+      <nav class="main-menu" aria-label="Menu principal">
+        <a class="menu-button" href="index.html" data-page-link="badgeage">Badgeage</a>
+        <a class="menu-button" href="notes.html" data-page-link="notes">Notes</a>
+        <a class="menu-button active" href="liens.html" data-page-link="links">Liens</a>
+        <a class="menu-button" href="historique.html" data-page-link="history">Historique</a>
+      </nav>
+
+      <main id="links-view" class="tool-section">
+        <div class="section-heading">
+          <h2>Liens rapides</h2>
+          <span id="link-count">0 lien</span>
+        </div>
+
+        <form id="link-form" class="link-form">
+          <input id="link-label" type="text" autocomplete="off" placeholder="Nom du lien" />
+          <input id="link-url" type="text" autocomplete="off" placeholder="https://..." />
+          <input id="link-category" type="text" autocomplete="off" placeholder="Catégorie" list="link-category-options" />
+          <datalist id="link-category-options">
+            <option value="Intranet"></option>
+            <option value="RH"></option>
+            <option value="Microsoft 365"></option>
+            <option value="Dossiers réseau"></option>
+            <option value="Outils métier"></option>
+          </datalist>
+          <button class="primary-button" type="submit">Ajouter</button>
+        </form>
+
+        <div id="link-list" class="link-list"></div>
+      </main>
+    </div>
+  </body>
+</html>
