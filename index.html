@@ -6,34 +6,42 @@
     <title>Mes horaires</title>
     <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="styles.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script defer src="app.js"></script>
   </head>
-  <body>
+  <body data-page="badgeage">
     <div class="app">
       <header class="topbar">
-        <div class="brand-block">
-          <img src="assets/ntn-logo.png" alt="NTN Europe" />
-        </div>
+        <img src="assets/ntn-logo.png" alt="NTN Europe" />
 
-        <div class="topbar-main">
-          <div>
-            <h1>Badgeage</h1>
-          </div>
-
-          <div class="date-actions">
-            <input id="work-date" type="date" aria-label="Journée" />
-            <button id="today-button" type="button" class="ghost-button">Aujourd'hui</button>
-          </div>
+        <div class="date-actions">
+          <input id="work-date" type="date" aria-label="Journée" />
+          <button id="today-button" type="button" class="ghost-button">Aujourd'hui</button>
         </div>
       </header>
 
-      <main class="day-card">
-        <section class="focus-row" aria-live="polite">
+      <nav class="main-menu" aria-label="Menu principal">
+        <a class="menu-button active" href="index.html" data-page-link="badgeage">Badgeage</a>
+        <a class="menu-button" href="notes.html" data-page-link="notes">Notes</a>
+        <a class="menu-button" href="liens.html" data-page-link="links">Liens</a>
+        <a class="menu-button" href="historique.html" data-page-link="history">Historique</a>
+      </nav>
+
+      <main id="badgeage-view" class="day-layout">
+        <section class="clock-panel" aria-live="polite">
+          <span class="label">Maintenant</span>
+          <strong id="live-clock">--:--</strong>
+          <p class="next-line">Prochain badge: <strong id="next-punch">Arrivée</strong></p>
+          <button id="quick-punch" class="primary-button" type="button">Badger maintenant</button>
+        </section>
+
+        <section class="target-panel">
           <div>
-            <span class="label">Maintenant</span>
-            <strong id="live-clock">--:--</strong>
+            <span class="label">Départ conseillé</span>
+            <strong id="target-time">--:--</strong>
           </div>
-          <div>
+
+          <div class="target-edit">
             <label class="label" for="target-hours">À faire</label>
             <div class="target-input">
               <input id="target-hours" type="number" min="0" max="24" step="1" inputmode="numeric" disabled />
@@ -43,16 +51,13 @@
               <button id="target-lock" class="lock-button" type="button">Modifier</button>
             </div>
           </div>
-          <div>
-            <span class="label">Départ conseillé</span>
-            <strong id="target-time">--:--</strong>
+
+          <div class="progress-shell" aria-label="Progression vers l'objectif du jour">
+            <div id="progress-bar" class="progress-bar"></div>
           </div>
         </section>
 
-        <button id="quick-punch" class="primary-button" type="button">Badger maintenant</button>
-        <p class="next-line">Prochain badge: <strong id="next-punch">Arrivée</strong></p>
-
-        <section class="punch-list" aria-label="Heures de la journée">
+        <section class="punch-panel" aria-label="Heures de la journée">
           <div class="punch-row" data-field-row="arrival">
             <label for="arrival">Arrivée</label>
             <input id="arrival" data-field="arrival" type="time" />
@@ -78,57 +83,31 @@
           </div>
         </section>
 
-        <section class="summary-row" aria-label="Résumé de la journée">
-          <div>
-            <span class="label">Travaillé</span>
-            <strong id="worked-time">0h00</strong>
+        <section class="status-panel">
+          <div class="summary-row" aria-label="Résumé de la journée">
+            <div>
+              <span class="label">Travaillé</span>
+              <strong id="worked-time">0h00</strong>
+            </div>
+            <div>
+              <span class="label">Restant</span>
+              <strong id="remaining-time">8h00</strong>
+            </div>
+            <div>
+              <span class="label">Pause</span>
+              <strong id="lunch-time">--</strong>
+            </div>
           </div>
-          <div>
-            <span class="label">Restant</span>
-            <strong id="remaining-time">8h00</strong>
-          </div>
-          <div>
-            <span class="label">Pause midi</span>
-            <strong id="lunch-time">--</strong>
+
+          <p id="status-message" class="status-message">Chargement Supabase...</p>
+
+          <div class="panel-actions">
+            <button id="undo-button" type="button" class="ghost-button">Annuler</button>
+            <button id="clear-button" type="button" class="danger-button">Effacer la journée</button>
           </div>
         </section>
-
-        <div class="progress-shell" aria-label="Progression vers l'objectif du jour">
-          <div id="progress-bar" class="progress-bar"></div>
-        </div>
-
-        <p id="status-message" class="status-message">Prêt à badger l'arrivée.</p>
-
-        <div class="panel-actions">
-          <button id="undo-button" type="button" class="ghost-button">Annuler</button>
-          <button id="clear-button" type="button" class="danger-button">Effacer la journée</button>
-        </div>
       </main>
 
-      <section class="history-section">
-        <div class="section-heading">
-          <h2>Historique</h2>
-          <button id="export-button" type="button" class="ghost-button">Exporter CSV</button>
-        </div>
-
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Arrivée</th>
-                <th>Repas</th>
-                <th>Retour</th>
-                <th>Départ</th>
-                <th>Objectif</th>
-                <th>Total</th>
-                <th>Écart</th>
-              </tr>
-            </thead>
-            <tbody id="history-body"></tbody>
-          </table>
-        </div>
-      </section>
     </div>
   </body>
 </html>

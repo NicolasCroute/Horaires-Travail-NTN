@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Historique</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body data-page="history">
+    <div class="app">
+      <header class="topbar">
+        <img src="assets/ntn-logo.png" alt="NTN Europe" />
+
+        <div class="date-actions">
+          <input id="work-date" type="date" aria-label="Journée" />
+          <button id="today-button" type="button" class="ghost-button">Aujourd'hui</button>
+        </div>
+      </header>
+
+      <nav class="main-menu" aria-label="Menu principal">
+        <a class="menu-button" href="index.html" data-page-link="badgeage">Badgeage</a>
+        <a class="menu-button" href="notes.html" data-page-link="notes">Notes</a>
+        <a class="menu-button" href="liens.html" data-page-link="links">Liens</a>
+        <a class="menu-button active" href="historique.html" data-page-link="history">Historique</a>
+      </nav>
+
+      <main id="history-view" class="history-section">
+        <div class="section-heading">
+          <h2>Historique</h2>
+          <button id="export-button" type="button" class="ghost-button">Exporter CSV</button>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th>
+                <th>Arrivée</th>
+                <th>Repas</th>
+                <th>Retour</th>
+                <th>Départ</th>
+                <th>Objectif</th>
+                <th>Total</th>
+                <th>Écart</th>
+              </tr>
+            </thead>
+            <tbody id="history-body"></tbody>
+          </table>
+        </div>
+      </main>
+    </div>
+  </body>
+</html>
