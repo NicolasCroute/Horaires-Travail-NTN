@@ -1,6 +1,10 @@
 "use strict";
 
-const STORAGE_KEY = "horaires-travail.records.v1";
+const SUPABASE_URL = "https://ahdbrkiuerbhtfmteobt.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_PZL56Nw8eE77QZ8c78SuaA_Hpkhy8qE";
+const TABLE_NAME = "work_days_public";
+const NOTE_TABLE_NAME = "work_notes_public";
+const LINK_TABLE_NAME = "quick_links_public";
 const DEFAULT_TARGET_MINUTES = 8 * 60;
 const MIN_LUNCH_MINUTES = 45;
 
@@ -17,6 +21,12 @@ const QUICK_BUTTON_LABELS = {
   lunchIn: "Badger le retour repas",
   departure: "Badger le départ boulot",
 };
+
+const supabaseClient = window.supabase?.createClient(
+  SUPABASE_URL,
+  SUPABASE_PUBLISHABLE_KEY,
+);
+const currentPage = document.body.dataset.page || "badgeage";
 
 const fieldInputs = Object.fromEntries(
   FIELDS.map((field) => [field.key, document.querySelector(`[data-field="${field.key}"]`)]),
@@ -41,23 +51,29 @@ const elements = {
   clearButton: document.querySelector("#clear-button"),
   exportButton: document.querySelector("#export-button"),
   historyBody: document.querySelector("#history-body"),
+  noteCount: document.querySelector("#note-count"),
+  noteForm: document.querySelector("#note-form"),
+  noteInput: document.querySelector("#note-input"),
+  noteReminder: document.querySelector("#note-reminder"),
+  noteList: document.querySelector("#note-list"),
+  linkCount: document.querySelector("#link-count"),
+  linkForm: document.querySelector("#link-form"),
+  linkLabel: document.querySelector("#link-label"),
+  linkUrl: document.querySelector("#link-url"),
+  linkCategory: document.querySelector("#link-category"),
+  linkList: document.querySelector("#link-list"),
 };
 
-let records = loadRecords();
-let selectedDate = todayISO();
+let records = {};
+let notes = [];
+let quickLinks = [];
+let selectedDate = readSelectedDate();
 let isTargetLocked = true;
-
-function loadRecords() {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {};
-  } catch {
-    return {};
-  }
-}
-
-function saveRecords() {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
-}
+let isRemoteReady = false;
+let isNoteRemoteReady = false;
+let isLinkRemoteReady = false;
+let noteErrorMessage = "";
+let linkErrorMessage = "";
 
 function todayISO() {
   const now = new Date();
@@ -66,6 +82,28 @@ function todayISO() {
     String(now.getMonth() + 1).padStart(2, "0"),
     String(now.getDate()).padStart(2, "0"),
   ].join("-");
+}
+
+function readSelectedDate() {
+  const date = new URLSearchParams(window.location.search).get("date");
+  return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayISO();
+}
+
+function buildPageHref(pageName) {
+  const pages = {
+    badgeage: "index.html",
+    notes: "notes.html",
+    links: "liens.html",
+    history: "historique.html",
+  };
+  const pagePath = pages[pageName] || "index.html";
+  return `${pagePath}?date=${encodeURIComponent(selectedDate)}`;
+}
+
+function syncNavigationLinks() {
+  document.querySelectorAll("[data-page-link]").forEach((link) => {
+    link.href = buildPageHref(link.dataset.pageLink);
+  });
 }
 
 function nowMinutes() {
@@ -169,6 +207,10 @@ function targetMinutesToInputParts(targetMinutes) {
 }
 
 function syncTargetLock() {
+  if (!elements.targetHours || !elements.targetMinutes || !elements.targetLock) {
+    return;
+  }
+
   elements.targetHours.disabled = isTargetLocked;
   elements.targetMinutes.disabled = isTargetLocked;
   elements.targetLock.classList.toggle("unlocked", !isTargetLocked);
@@ -194,7 +236,7 @@ function getRecord(dateISO = selectedDate) {
   return records[dateISO] || { date: dateISO };
 }
 
-function setRecord(dateISO, record) {
+function normalizeRecord(dateISO, record) {
   const cleaned = { date: dateISO };
   const targetMinutes = getTargetMinutes(record);
 
@@ -208,15 +250,14 @@ function setRecord(dateISO, record) {
     }
   });
 
-  const hasPunch = FIELDS.some(({ key }) => cleaned[key]);
-  const hasCustomTarget = cleaned.targetMinutes != null;
-  if (hasPunch || hasCustomTarget) {
-    records[dateISO] = cleaned;
-  } else {
-    delete records[dateISO];
-  }
+  return cleaned;
+}
 
-  saveRecords();
+function recordHasData(record) {
+  return (
+    FIELDS.some(({ key }) => record[key]) ||
+    getTargetMinutes(record) !== DEFAULT_TARGET_MINUTES
+  );
 }
 
 function getCurrentField(record) {
@@ -326,17 +367,11 @@ function calculateDay(record, dateISO) {
 
 function buildStatus(record, info) {
   if (info.errors.length > 0) {
-    return {
-      type: "error",
-      text: info.errors[0],
-    };
+    return { type: "error", text: info.errors[0] };
   }
 
   if (!info.hasArrival) {
-    return {
-      type: "neutral",
-      text: "Prêt à badger l'arrivée.",
-    };
+    return { type: "neutral", text: "Prêt à badger l'arrivée." };
   }
 
   if (info.hasDeparture && info.deltaMinutes != null) {
@@ -388,28 +423,541 @@ function buildStatus(record, info) {
   };
 }
 
+function setStatusMessage(text, type = "neutral") {
+  if (!elements.statusMessage) {
+    return;
+  }
+
+  elements.statusMessage.textContent = text;
+  elements.statusMessage.className = `status-message ${type === "neutral" ? "" : type}`.trim();
+}
+
+function rowTimeToHM(value) {
+  return value ? String(value).slice(0, 5) : "";
+}
+
+function rowToRecord(row) {
+  return normalizeRecord(row.work_date, {
+    date: row.work_date,
+    targetMinutes: row.target_minutes,
+    arrival: rowTimeToHM(row.arrival),
+    lunchOut: rowTimeToHM(row.lunch_out),
+    lunchIn: rowTimeToHM(row.lunch_in),
+    departure: rowTimeToHM(row.departure),
+  });
+}
+
+function recordToRow(record) {
+  return {
+    work_date: record.date,
+    target_minutes: getTargetMinutes(record),
+    arrival: record.arrival || null,
+    lunch_out: record.lunchOut || null,
+    lunch_in: record.lunchIn || null,
+    departure: record.departure || null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+async function loadRemoteRecords() {
+  if (!supabaseClient) {
+    setStatusMessage("Supabase n'a pas chargé. Vérifie ta connexion internet.", "error");
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from(TABLE_NAME)
+    .select("work_date,target_minutes,arrival,lunch_out,lunch_in,departure")
+    .order("work_date", { ascending: false });
+
+  if (error) {
+    setStatusMessage(`Erreur Supabase: ${error.message}`, "error");
+    isRemoteReady = false;
+    return;
+  }
+
+  records = {};
+  data.forEach((row) => {
+    const record = rowToRecord(row);
+    records[record.date] = record;
+  });
+
+  isRemoteReady = true;
+  render();
+}
+
+function rowToNote(row) {
+  return {
+    id: row.id,
+    date: row.note_date,
+    text: row.note_text,
+    done: Boolean(row.is_done),
+    reminderDate: row.reminder_date || "",
+    position: Number(row.position) || 0,
+  };
+}
+
+function rowToLink(row) {
+  return {
+    id: row.id,
+    category: row.category || "Général",
+    label: row.label,
+    url: row.url,
+    position: Number(row.position) || 0,
+  };
+}
+
+function isReminderVisible(note, dateISO = selectedDate) {
+  return Boolean(note.reminderDate && note.reminderDate <= dateISO && !note.done);
+}
+
+function getVisibleNotes() {
+  return notes
+    .filter((note) => note.date === selectedDate || isReminderVisible(note))
+    .sort((first, second) => {
+      if (first.done !== second.done) {
+        return first.done ? 1 : -1;
+      }
+
+      if (first.date !== second.date) {
+        return first.date.localeCompare(second.date);
+      }
+
+      return first.position - second.position;
+    });
+}
+
+function formatShortDate(dateISO) {
+  if (!dateISO) {
+    return "";
+  }
+
+  const [year, month, day] = dateISO.split("-").map(Number);
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+  }).format(new Date(year, month - 1, day));
+}
+
+function createEmptyState(text) {
+  const empty = document.createElement("p");
+  empty.className = "empty-state";
+  empty.textContent = text;
+  return empty;
+}
+
+function renderNotes() {
+  if (!elements.noteCount || !elements.noteList) {
+    return;
+  }
+
+  const visibleNotes = getVisibleNotes();
+  const pendingCount = visibleNotes.filter((note) => !note.done).length;
+  elements.noteCount.textContent = pendingCount === 1 ? "1 en cours" : `${pendingCount} en cours`;
+  elements.noteList.innerHTML = "";
+
+  if (!isNoteRemoteReady && notes.length === 0) {
+    elements.noteList.append(createEmptyState(noteErrorMessage || "Notes en cours de chargement..."));
+    return;
+  }
+
+  if (visibleNotes.length === 0) {
+    elements.noteList.append(createEmptyState("Aucune note pour cette journée."));
+    return;
+  }
+
+  visibleNotes.forEach((note) => {
+    const row = document.createElement("div");
+    row.className = `note-row ${note.done ? "done" : ""}`;
+    row.dataset.noteId = note.id;
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = note.done;
+    checkbox.setAttribute("aria-label", "Cocher la note");
+
+    const text = document.createElement("span");
+    text.className = "note-text";
+    text.textContent = note.text;
+
+    const meta = document.createElement("span");
+    meta.className = `note-meta ${isReminderVisible(note) ? "due" : ""}`;
+    if (note.reminderDate) {
+      meta.textContent = `Rappel ${formatShortDate(note.reminderDate)}`;
+    } else if (note.date !== selectedDate) {
+      meta.textContent = `Note ${formatShortDate(note.date)}`;
+    }
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "ghost-button";
+    removeButton.textContent = "Retirer";
+
+    row.append(checkbox, text, meta, removeButton);
+    elements.noteList.append(row);
+  });
+}
+
+function renderLinks() {
+  if (!elements.linkCount || !elements.linkList) {
+    return;
+  }
+
+  const total = quickLinks.length;
+  elements.linkCount.textContent = total === 1 ? "1 lien" : `${total} liens`;
+  elements.linkList.innerHTML = "";
+
+  if (!isLinkRemoteReady && quickLinks.length === 0) {
+    elements.linkList.append(createEmptyState(linkErrorMessage || "Liens en cours de chargement..."));
+    return;
+  }
+
+  if (quickLinks.length === 0) {
+    elements.linkList.append(createEmptyState("Aucun lien rapide."));
+    return;
+  }
+
+  const linksByCategory = quickLinks.reduce((groups, link) => {
+    const category = link.category || "Général";
+    groups.set(category, [...(groups.get(category) || []), link]);
+    return groups;
+  }, new Map());
+
+  [...linksByCategory.entries()]
+    .sort(([firstCategory], [secondCategory]) => firstCategory.localeCompare(secondCategory, "fr"))
+    .forEach(([category, links]) => {
+      const group = document.createElement("section");
+      group.className = "link-group";
+
+      const title = document.createElement("h3");
+      title.textContent = category;
+
+      const grid = document.createElement("div");
+      grid.className = "link-grid";
+
+      links
+        .sort((first, second) => first.position - second.position || first.label.localeCompare(second.label, "fr"))
+        .forEach((link) => {
+          const card = document.createElement("article");
+          card.className = "link-card";
+          card.dataset.linkId = link.id;
+
+          const anchor = document.createElement("a");
+          anchor.href = link.url;
+          anchor.target = "_blank";
+          anchor.rel = "noopener noreferrer";
+          anchor.textContent = link.label;
+
+          const removeButton = document.createElement("button");
+          removeButton.type = "button";
+          removeButton.className = "ghost-button";
+          removeButton.textContent = "Retirer";
+
+          const url = document.createElement("span");
+          url.className = "link-url";
+          url.textContent = link.url;
+
+          card.append(anchor, removeButton, url);
+          grid.append(card);
+        });
+
+      group.append(title, grid);
+      elements.linkList.append(group);
+    });
+}
+
+async function loadRemoteNotes() {
+  if (!supabaseClient) {
+    isNoteRemoteReady = false;
+    noteErrorMessage = "Supabase n'a pas chargé.";
+    renderNotes();
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from(NOTE_TABLE_NAME)
+    .select("id,note_date,note_text,is_done,reminder_date,position")
+    .order("note_date", { ascending: false })
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    isNoteRemoteReady = false;
+    notes = [];
+    noteErrorMessage = `Erreur notes Supabase: ${error.message}`;
+    renderNotes();
+    setStatusMessage(`Erreur notes Supabase: ${error.message}`, "error");
+    return;
+  }
+
+  isNoteRemoteReady = true;
+  noteErrorMessage = "";
+  notes = data.map(rowToNote);
+  renderNotes();
+}
+
+async function loadRemoteLinks() {
+  if (!supabaseClient) {
+    isLinkRemoteReady = false;
+    linkErrorMessage = "Supabase n'a pas chargé.";
+    renderLinks();
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from(LINK_TABLE_NAME)
+    .select("id,category,label,url,position")
+    .order("category", { ascending: true })
+    .order("position", { ascending: true })
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    isLinkRemoteReady = false;
+    quickLinks = [];
+    linkErrorMessage = `Erreur liens Supabase: ${error.message}`;
+    renderLinks();
+    setStatusMessage(`Erreur liens Supabase: ${error.message}`, "error");
+    return;
+  }
+
+  isLinkRemoteReady = true;
+  linkErrorMessage = "";
+  quickLinks = data.map(rowToLink);
+  renderLinks();
+}
+
+async function addNote(text, reminderDate) {
+  const cleanText = text.trim();
+  if (!cleanText) {
+    return;
+  }
+
+  if (!isNoteRemoteReady) {
+    setStatusMessage("Notes pas encore disponibles. Vérifie le script SQL Supabase.", "warning");
+    return;
+  }
+
+  const nextPosition =
+    notes
+      .filter((note) => note.date === selectedDate)
+      .reduce((max, note) => Math.max(max, note.position), 0) + 1;
+
+  const { data, error } = await supabaseClient
+    .from(NOTE_TABLE_NAME)
+    .insert({
+      note_date: selectedDate,
+      note_text: cleanText,
+      is_done: false,
+      reminder_date: reminderDate || null,
+      position: nextPosition,
+      updated_at: new Date().toISOString(),
+    })
+    .select("id,note_date,note_text,is_done,reminder_date,position")
+    .single();
+
+  if (error) {
+    setStatusMessage(`Ajout note impossible: ${error.message}`, "error");
+    return;
+  }
+
+  notes.push(rowToNote(data));
+  elements.noteInput.value = "";
+  elements.noteReminder.value = "";
+  renderNotes();
+}
+
+async function updateNoteDone(noteId, done) {
+  const note = notes.find((item) => item.id === noteId);
+  if (!note || !isNoteRemoteReady) {
+    return;
+  }
+
+  note.done = done;
+  renderNotes();
+
+  const { error } = await supabaseClient
+    .from(NOTE_TABLE_NAME)
+    .update({ is_done: done, updated_at: new Date().toISOString() })
+    .eq("id", noteId);
+
+  if (error) {
+    note.done = !done;
+    renderNotes();
+    setStatusMessage(`Mise à jour note impossible: ${error.message}`, "error");
+  }
+}
+
+async function removeNote(noteId) {
+  const existingNotes = [...notes];
+  notes = notes.filter((note) => note.id !== noteId);
+  renderNotes();
+
+  const { error } = await supabaseClient
+    .from(NOTE_TABLE_NAME)
+    .delete()
+    .eq("id", noteId);
+
+  if (error) {
+    notes = existingNotes;
+    renderNotes();
+    setStatusMessage(`Suppression note impossible: ${error.message}`, "error");
+  }
+}
+
+function normalizeUrl(value) {
+  const cleanValue = value.trim();
+  if (!cleanValue) {
+    return "";
+  }
+
+  if (/^\\\\/.test(cleanValue)) {
+    return `file:${cleanValue.replaceAll("\\", "/")}`;
+  }
+
+  if (/^(https?:|mailto:|file:)/i.test(cleanValue)) {
+    return cleanValue;
+  }
+
+  return `https://${cleanValue}`;
+}
+
+async function addLink(label, url, category) {
+  const cleanLabel = label.trim();
+  const cleanUrl = normalizeUrl(url);
+  const cleanCategory = category.trim() || "Général";
+  if (!cleanLabel || !cleanUrl) {
+    return;
+  }
+
+  if (!isLinkRemoteReady) {
+    setStatusMessage("Liens pas encore disponibles. Vérifie le script SQL Supabase.", "warning");
+    return;
+  }
+
+  const nextPosition =
+    quickLinks
+      .filter((link) => link.category === cleanCategory)
+      .reduce((max, link) => Math.max(max, link.position), 0) + 1;
+
+  const { data, error } = await supabaseClient
+    .from(LINK_TABLE_NAME)
+    .insert({
+      label: cleanLabel,
+      url: cleanUrl,
+      category: cleanCategory,
+      position: nextPosition,
+      updated_at: new Date().toISOString(),
+    })
+    .select("id,category,label,url,position")
+    .single();
+
+  if (error) {
+    setStatusMessage(`Ajout lien impossible: ${error.message}`, "error");
+    return;
+  }
+
+  quickLinks.push(rowToLink(data));
+  elements.linkLabel.value = "";
+  elements.linkUrl.value = "";
+  elements.linkCategory.value = "";
+  renderLinks();
+}
+
+async function removeLink(linkId) {
+  const existingLinks = [...quickLinks];
+  quickLinks = quickLinks.filter((link) => link.id !== linkId);
+  renderLinks();
+
+  const { error } = await supabaseClient
+    .from(LINK_TABLE_NAME)
+    .delete()
+    .eq("id", linkId);
+
+  if (error) {
+    quickLinks = existingLinks;
+    renderLinks();
+    setStatusMessage(`Suppression lien impossible: ${error.message}`, "error");
+  }
+}
+
+async function saveRemoteRecord(record) {
+  if (!isRemoteReady) {
+    return;
+  }
+
+  const { error } = await supabaseClient
+    .from(TABLE_NAME)
+    .upsert(recordToRow(record), { onConflict: "work_date" });
+
+  if (error) {
+    setStatusMessage(`Sauvegarde Supabase impossible: ${error.message}`, "error");
+  }
+}
+
+async function deleteRemoteRecord(dateISO) {
+  if (!isRemoteReady) {
+    return;
+  }
+
+  const { error } = await supabaseClient
+    .from(TABLE_NAME)
+    .delete()
+    .eq("work_date", dateISO);
+
+  if (error) {
+    setStatusMessage(`Suppression Supabase impossible: ${error.message}`, "error");
+  }
+}
+
 function render() {
+  syncNavigationLinks();
+  if (elements.dateInput) {
+    elements.dateInput.value = selectedDate;
+  }
+
+  if (currentPage === "notes") {
+    renderNotes();
+    return;
+  }
+
+  if (currentPage === "links") {
+    renderLinks();
+    return;
+  }
+
+  if (currentPage === "history") {
+    renderHistory();
+    return;
+  }
+
+  if (!elements.liveClock) {
+    return;
+  }
+
   const record = getRecord();
   const info = calculateDay(record, selectedDate);
   const currentField = getCurrentField(record);
 
-  elements.dateInput.value = selectedDate;
   elements.liveClock.textContent = nowHM();
   const targetInputParts = targetMinutesToInputParts(info.targetMinutes);
   elements.targetHours.value = targetInputParts.hours;
   elements.targetMinutes.value = targetInputParts.minutes;
   syncTargetLock();
   elements.nextPunch.textContent = currentField ? currentField.label : "Journée complète";
-  elements.quickPunch.disabled = !currentField;
+  elements.quickPunch.disabled = !currentField || !isRemoteReady;
   elements.quickPunch.textContent = currentField
     ? QUICK_BUTTON_LABELS[currentField.key]
     : "Journée complète";
 
   FIELDS.forEach(({ key }) => {
-    fieldInputs[key].value = record[key] || "";
+    if (fieldInputs[key]) {
+      fieldInputs[key].value = record[key] || "";
+    }
     const row = document.querySelector(`[data-field-row="${key}"]`);
-    row.classList.toggle("complete", Boolean(record[key]));
-    row.classList.toggle("current", currentField?.key === key);
+    if (row) {
+      row.classList.toggle("complete", Boolean(record[key]));
+      row.classList.toggle("current", currentField?.key === key);
+    }
   });
 
   elements.workedTime.textContent = formatDuration(info.workedMinutes, { empty: "0h00" });
@@ -422,14 +970,17 @@ function render() {
   elements.progressBar.style.width = `${Math.min(progress, 100)}%`;
   elements.progressBar.classList.toggle("over", progress > 100);
 
-  const status = buildStatus(record, info);
-  elements.statusMessage.textContent = status.text;
-  elements.statusMessage.className = `status-message ${status.type === "neutral" ? "" : status.type}`.trim();
-
-  renderHistory();
+  const status = isRemoteReady
+    ? buildStatus(record, info)
+    : { type: "warning", text: "Connexion Supabase en cours..." };
+  setStatusMessage(status.text, status.type);
 }
 
 function renderHistory() {
+  if (!elements.historyBody) {
+    return;
+  }
+
   const sortedDates = Object.keys(records).sort().reverse();
   elements.historyBody.innerHTML = "";
 
@@ -470,19 +1021,31 @@ function renderHistory() {
   });
 }
 
-function setField(key, value) {
-  const record = { ...getRecord(), [key]: value };
-  setRecord(selectedDate, record);
-  render();
+async function setRecord(dateISO, record) {
+  const cleaned = normalizeRecord(dateISO, record);
+
+  if (recordHasData(cleaned)) {
+    records[dateISO] = cleaned;
+    render();
+    await saveRemoteRecord(cleaned);
+  } else {
+    delete records[dateISO];
+    render();
+    await deleteRemoteRecord(dateISO);
+  }
 }
 
-function setTargetDuration() {
+async function setField(key, value) {
+  const record = { ...getRecord(), [key]: value };
+  await setRecord(selectedDate, record);
+}
+
+async function setTargetDuration() {
   const record = {
     ...getRecord(),
     targetMinutes: parseTargetDuration(elements.targetHours.value, elements.targetMinutes.value),
   };
-  setRecord(selectedDate, record);
-  render();
+  await setRecord(selectedDate, record);
 }
 
 function toggleTargetLock() {
@@ -501,14 +1064,14 @@ function punchField(key) {
 function quickPunch() {
   const record = getRecord();
   const currentField = getCurrentField(record);
-  if (!currentField) {
+  if (!currentField || !isRemoteReady) {
     return;
   }
 
   punchField(currentField.key);
 }
 
-function undoLastPunch() {
+async function undoLastPunch() {
   const record = { ...getRecord() };
   const lastField = [...FIELDS].reverse().find(({ key }) => record[key]);
   if (!lastField) {
@@ -516,21 +1079,19 @@ function undoLastPunch() {
   }
 
   delete record[lastField.key];
-  setRecord(selectedDate, record);
-  render();
+  await setRecord(selectedDate, record);
 }
 
-function clearDay() {
+async function clearDay() {
   const record = getRecord();
-  const hasData = FIELDS.some(({ key }) => record[key]) || getTargetMinutes(record) !== DEFAULT_TARGET_MINUTES;
-  if (!hasData) {
+  if (!recordHasData(record)) {
     return;
   }
 
   if (confirm("Effacer toutes les heures de cette journée ?")) {
     delete records[selectedDate];
-    saveRecords();
     render();
+    await deleteRemoteRecord(selectedDate);
   }
 }
 
@@ -566,28 +1127,75 @@ function exportCsv() {
 }
 
 function bindEvents() {
-  elements.dateInput.addEventListener("change", (event) => {
-    selectedDate = event.target.value || todayISO();
-    isTargetLocked = true;
-    render();
-  });
+  if (elements.noteForm) {
+    elements.noteForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      addNote(elements.noteInput.value, elements.noteReminder.value);
+    });
+  }
 
-  elements.todayButton.addEventListener("click", () => {
-    selectedDate = todayISO();
-    isTargetLocked = true;
-    render();
-  });
+  if (elements.noteList) {
+    elements.noteList.addEventListener("click", (event) => {
+      const row = event.target.closest(".note-row");
+      if (!row) {
+        return;
+      }
 
-  elements.quickPunch.addEventListener("click", quickPunch);
-  elements.targetHours.addEventListener("change", setTargetDuration);
-  elements.targetMinutes.addEventListener("change", setTargetDuration);
-  elements.targetLock.addEventListener("click", toggleTargetLock);
-  elements.undoButton.addEventListener("click", undoLastPunch);
-  elements.clearButton.addEventListener("click", clearDay);
-  elements.exportButton.addEventListener("click", exportCsv);
+      if (event.target.matches('input[type="checkbox"]')) {
+        updateNoteDone(row.dataset.noteId, event.target.checked);
+        return;
+      }
+
+      if (event.target.matches("button")) {
+        removeNote(row.dataset.noteId);
+      }
+    });
+  }
+
+  if (elements.linkForm) {
+    elements.linkForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      addLink(elements.linkLabel.value, elements.linkUrl.value, elements.linkCategory.value);
+    });
+  }
+
+  if (elements.linkList) {
+    elements.linkList.addEventListener("click", (event) => {
+      const row = event.target.closest(".link-card");
+      if (!row || !event.target.matches("button")) {
+        return;
+      }
+
+      removeLink(row.dataset.linkId);
+    });
+  }
+
+  if (elements.dateInput) {
+    elements.dateInput.addEventListener("change", (event) => {
+      selectedDate = event.target.value || todayISO();
+      isTargetLocked = true;
+      render();
+    });
+  }
+
+  if (elements.todayButton) {
+    elements.todayButton.addEventListener("click", () => {
+      selectedDate = todayISO();
+      isTargetLocked = true;
+      render();
+    });
+  }
+
+  elements.quickPunch?.addEventListener("click", quickPunch);
+  elements.targetHours?.addEventListener("change", setTargetDuration);
+  elements.targetMinutes?.addEventListener("change", setTargetDuration);
+  elements.targetLock?.addEventListener("click", toggleTargetLock);
+  elements.undoButton?.addEventListener("click", undoLastPunch);
+  elements.clearButton?.addEventListener("click", clearDay);
+  elements.exportButton?.addEventListener("click", exportCsv);
 
   FIELDS.forEach(({ key }) => {
-    fieldInputs[key].addEventListener("input", (event) => {
+    fieldInputs[key]?.addEventListener("input", (event) => {
       setField(key, event.target.value);
     });
   });
@@ -598,19 +1206,33 @@ function bindEvents() {
     });
   });
 
-  elements.historyBody.addEventListener("click", (event) => {
-    const row = event.target.closest("tr[data-date]");
-    if (!row) {
-      return;
-    }
+  if (elements.historyBody) {
+    elements.historyBody.addEventListener("click", (event) => {
+      const row = event.target.closest("tr[data-date]");
+      if (!row) {
+        return;
+      }
 
-    selectedDate = row.dataset.date;
-    isTargetLocked = true;
-    render();
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  });
+      selectedDate = row.dataset.date;
+      isTargetLocked = true;
+      window.location.href = buildPageHref("badgeage");
+    });
+  }
 }
 
 bindEvents();
 render();
-setInterval(render, 30_000);
+if (currentPage === "badgeage" || currentPage === "history") {
+  loadRemoteRecords();
+}
+if (currentPage === "notes") {
+  loadRemoteNotes();
+}
+if (currentPage === "links") {
+  loadRemoteLinks();
+}
+setInterval(() => {
+  if (currentPage === "badgeage") {
+    render();
+  }
+}, 30_000);

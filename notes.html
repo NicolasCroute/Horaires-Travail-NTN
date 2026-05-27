@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Notes du jour</title>
+    <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="app.js"></script>
+  </head>
+  <body data-page="notes">
+    <div class="app">
+      <header class="topbar">
+        <img src="assets/ntn-logo.png" alt="NTN Europe" />
+
+        <div class="date-actions">
+          <input id="work-date" type="date" aria-label="Journée" />
+          <button id="today-button" type="button" class="ghost-button">Aujourd'hui</button>
+        </div>
+      </header>
+
+      <nav class="main-menu" aria-label="Menu principal">
+        <a class="menu-button" href="index.html" data-page-link="badgeage">Badgeage</a>
+        <a class="menu-button active" href="notes.html" data-page-link="notes">Notes</a>
+        <a class="menu-button" href="liens.html" data-page-link="links">Liens</a>
+        <a class="menu-button" href="historique.html" data-page-link="history">Historique</a>
+      </nav>
+
+      <main id="notes-view" class="tool-section">
+        <div class="section-heading">
+          <h2>Notes du jour</h2>
+          <span id="note-count">0 en cours</span>
+        </div>
+
+        <form id="note-form" class="note-form">
+          <input id="note-input" type="text" autocomplete="off" placeholder="Ce que j'ai fait / à retenir" />
+          <input id="note-reminder" type="date" aria-label="Date de rappel" />
+          <button class="primary-button" type="submit">Ajouter</button>
+        </form>
+
+        <div id="note-list" class="item-list"></div>
+      </main>
+    </div>
+  </body>
+</html>
