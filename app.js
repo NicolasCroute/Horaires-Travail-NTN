@@ -11,7 +11,7 @@ const MIN_LUNCH_MINUTES = 45;
 const FIELDS = [
   { key: "arrival", label: "Arrivée" },
   { key: "lunchOut", label: "Départ repas" },
-  { key: "lunchIn", label: "Retour repas" }
+  { key: "lunchIn", label: "Retour repas" },
   { key: "departure", label: "Départ boulot" },
 ];
 
