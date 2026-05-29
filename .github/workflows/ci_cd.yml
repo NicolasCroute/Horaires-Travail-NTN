@@ -1,0 +1,34 @@
+# ══════════════════════════════════════════════════════════════════════════════
+# MÉTADONNÉES
+# ══════════════════════════════════════════════════════════════════════════════
+name: Pipeline CI/CD                       # Nom affiché dans l'interface GitHub
+
+# ══════════════════════════════════════════════════════════════════════════════
+# QUAND ? (Événements déclencheurs)
+# ══════════════════════════════════════════════════════════════════════════════
+on:
+  push:
+    branches: [master, dev]   # Sur push vers ces branches
+  pull_request:
+    branches: [master, dev]          # Sur PR vers master
+  workflow_dispatch:            # Bouton manuel dans l'interface
+
+# ══════════════════════════════════════════════════════════════════════════════
+# QUOI ?
+# ══════════════════════════════════════════════════════════════════════════════
+jobs:
+    check-js:
+        name: Vérifier le JS
+        runs-on: ubuntu-latest
+
+        steps: 
+            - name: Récupérer le code
+              uses: actions/checkout@v4       #git clone ton repository dans la machine du pipeline
+            
+            - name: Installer Node.js
+              uses: actions/steup-node@v4
+              with:
+                node-version: 22
+            
+            - name: Vérifier app.js
+              run: node --check app.js
