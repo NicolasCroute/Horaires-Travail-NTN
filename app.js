@@ -5,8 +5,10 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_PZL56Nw8eE77QZ8c78SuaA_Hpkhy8qE
 const TABLE_NAME = "work_days_public";
 const NOTE_TABLE_NAME = "work_notes_public";
 const LINK_TABLE_NAME = "quick_links_public";
-const DEFAULT_TARGET_MINUTES = 8 * 60;
+const BMIDE_TABLE_NAME = "bmide_status_public";
+const DEFAULT_TARGET_MINUTES = 7 * 60 + 45;
 const MIN_LUNCH_MINUTES = 45;
+const BMIDE_NAME_STORAGE_KEY = "horaires-travail.bmide-name.v1";
 
 const FIELDS = [
   { key: "arrival", label: "Arrivée" },
@@ -53,7 +55,9 @@ const elements = {
   historyBody: document.querySelector("#history-body"),
   noteCount: document.querySelector("#note-count"),
   noteForm: document.querySelector("#note-form"),
-  noteInput: document.querySelector("#note-input"),
+  noteEditor: document.querySelector("#note-editor"),
+  noteFormatButtons: document.querySelectorAll("[data-note-format]"),
+  noteReminderEnabled: document.querySelector("#note-reminder-enabled"),
   noteReminder: document.querySelector("#note-reminder"),
   noteList: document.querySelector("#note-list"),
   linkCount: document.querySelector("#link-count"),
@@ -62,16 +66,26 @@ const elements = {
   linkUrl: document.querySelector("#link-url"),
   linkCategory: document.querySelector("#link-category"),
   linkList: document.querySelector("#link-list"),
+  bmideName: document.querySelector("#bmide-name"),
+  bmideStatusCard: document.querySelector("#bmide-status-card"),
+  bmideState: document.querySelector("#bmide-state"),
+  bmideOwner: document.querySelector("#bmide-owner"),
+  bmideSince: document.querySelector("#bmide-since"),
+  bmideToggle: document.querySelector("#bmide-toggle"),
+  bmideRefresh: document.querySelector("#bmide-refresh"),
+  bmideMessage: document.querySelector("#bmide-message"),
 };
 
 let records = {};
 let notes = [];
 let quickLinks = [];
+let bmideStatus = { isTaken: false, takenBy: "", takenAt: "", updatedAt: "" };
 let selectedDate = readSelectedDate();
 let isTargetLocked = true;
 let isRemoteReady = false;
 let isNoteRemoteReady = false;
 let isLinkRemoteReady = false;
+let isBmideRemoteReady = false;
 let noteErrorMessage = "";
 let linkErrorMessage = "";
 
@@ -94,6 +108,7 @@ function buildPageHref(pageName) {
     badgeage: "index.html",
     notes: "notes.html",
     links: "liens.html",
+    bmide: "bmide.html",
     history: "historique.html",
   };
   const pagePath = pages[pageName] || "index.html";
@@ -507,6 +522,109 @@ function rowToLink(row) {
   };
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
+}
+
+function sanitizeNoteHtml(html) {
+  const allowedTags = new Set(["B", "STRONG", "I", "EM", "U", "BR", "DIV", "P"]);
+  const template = document.createElement("template");
+  template.innerHTML = html;
+
+  function cleanNode(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      return document.createTextNode(node.textContent || "");
+    }
+
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      return document.createTextNode("");
+    }
+
+    const tagName = node.tagName;
+    if (tagName === "SCRIPT" || tagName === "STYLE") {
+      return document.createTextNode("");
+    }
+
+    const cleanedChildren = [...node.childNodes].map(cleanNode);
+    if (!allowedTags.has(tagName)) {
+      const fragment = document.createDocumentFragment();
+      cleanedChildren.forEach((child) => fragment.append(child));
+      return fragment;
+    }
+
+    const cleanElement = document.createElement(tagName.toLowerCase());
+    cleanedChildren.forEach((child) => cleanElement.append(child));
+    return cleanElement;
+  }
+
+  const fragment = document.createDocumentFragment();
+  [...template.content.childNodes].forEach((node) => {
+    fragment.append(cleanNode(node));
+  });
+
+  const wrapper = document.createElement("div");
+  wrapper.append(fragment);
+  return wrapper.innerHTML.trim();
+}
+
+function noteContentToHtml(value) {
+  if (/<\/?[a-z][\s\S]*>/i.test(value)) {
+    return sanitizeNoteHtml(value);
+  }
+
+  return escapeHtml(value).replace(/\r?\n/g, "<br>");
+}
+
+function getNoteEditorText() {
+  if (!elements.noteEditor) {
+    return "";
+  }
+
+  return elements.noteEditor.textContent.replace(/\u00a0/g, " ").trim();
+}
+
+function getNoteEditorHtml() {
+  if (!elements.noteEditor) {
+    return "";
+  }
+
+  return sanitizeNoteHtml(elements.noteEditor.innerHTML);
+}
+
+function clearNoteForm() {
+  if (elements.noteEditor) {
+    elements.noteEditor.innerHTML = "";
+  }
+
+  if (elements.noteReminderEnabled) {
+    elements.noteReminderEnabled.checked = false;
+  }
+
+  if (elements.noteReminder) {
+    elements.noteReminder.value = "";
+    elements.noteReminder.disabled = true;
+    elements.noteReminder.hidden = true;
+  }
+}
+
+function syncReminderInput() {
+  if (!elements.noteReminderEnabled || !elements.noteReminder) {
+    return;
+  }
+
+  const isEnabled = elements.noteReminderEnabled.checked;
+  elements.noteReminder.disabled = !isEnabled;
+  elements.noteReminder.hidden = !isEnabled;
+
+  if (isEnabled && !elements.noteReminder.value) {
+    elements.noteReminder.value = selectedDate;
+  }
+}
+
 function isReminderVisible(note, dateISO = selectedDate) {
   return Boolean(note.reminderDate && note.reminderDate <= dateISO && !note.done);
 }
@@ -552,8 +670,10 @@ function renderNotes() {
   }
 
   const visibleNotes = getVisibleNotes();
-  const pendingCount = visibleNotes.filter((note) => !note.done).length;
-  elements.noteCount.textContent = pendingCount === 1 ? "1 en cours" : `${pendingCount} en cours`;
+  const dueCount = visibleNotes.filter((note) => isReminderVisible(note)).length;
+  const noteLabel = visibleNotes.length === 1 ? "1 note" : `${visibleNotes.length} notes`;
+  const reminderLabel = dueCount === 1 ? "1 rappel" : `${dueCount} rappels`;
+  elements.noteCount.textContent = dueCount > 0 ? `${noteLabel}, ${reminderLabel}` : noteLabel;
   elements.noteList.innerHTML = "";
 
   if (!isNoteRemoteReady && notes.length === 0) {
@@ -567,18 +687,13 @@ function renderNotes() {
   }
 
   visibleNotes.forEach((note) => {
-    const row = document.createElement("div");
-    row.className = `note-row ${note.done ? "done" : ""}`;
-    row.dataset.noteId = note.id;
+    const card = document.createElement("article");
+    card.className = `note-card ${note.done ? "done" : ""}`;
+    card.dataset.noteId = note.id;
 
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = note.done;
-    checkbox.setAttribute("aria-label", "Cocher la note");
-
-    const text = document.createElement("span");
-    text.className = "note-text";
-    text.textContent = note.text;
+    const content = document.createElement("div");
+    content.className = "note-content";
+    content.innerHTML = noteContentToHtml(note.text);
 
     const meta = document.createElement("span");
     meta.className = `note-meta ${isReminderVisible(note) ? "due" : ""}`;
@@ -588,13 +703,33 @@ function renderNotes() {
       meta.textContent = `Note ${formatShortDate(note.date)}`;
     }
 
+    const actions = document.createElement("div");
+    actions.className = "note-actions";
+
+    if (note.reminderDate) {
+      const doneLabel = document.createElement("label");
+      doneLabel.className = "note-done";
+
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = note.done;
+      checkbox.setAttribute("aria-label", "Marquer le rappel comme traité");
+
+      const doneText = document.createElement("span");
+      doneText.textContent = "Traité";
+
+      doneLabel.append(checkbox, doneText);
+      actions.append(doneLabel);
+    }
+
     const removeButton = document.createElement("button");
     removeButton.type = "button";
     removeButton.className = "ghost-button";
     removeButton.textContent = "Retirer";
+    actions.append(removeButton);
 
-    row.append(checkbox, text, meta, removeButton);
-    elements.noteList.append(row);
+    card.append(content, meta, actions);
+    elements.noteList.append(card);
   });
 }
 
@@ -666,6 +801,182 @@ function renderLinks() {
     });
 }
 
+function readBmideName() {
+  try {
+    return localStorage.getItem(BMIDE_NAME_STORAGE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+function saveBmideName(name) {
+  try {
+    localStorage.setItem(BMIDE_NAME_STORAGE_KEY, name);
+  } catch {
+    // Le nom reste utilisable pour la session en cours si le stockage local est bloqué.
+  }
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "--";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+
+  return new Intl.DateTimeFormat("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function rowToBmideStatus(row) {
+  return {
+    isTaken: Boolean(row.is_taken),
+    takenBy: row.taken_by || "",
+    takenAt: row.taken_at || "",
+    updatedAt: row.updated_at || "",
+  };
+}
+
+function setBmideMessage(text, type = "neutral") {
+  if (!elements.bmideMessage) {
+    return;
+  }
+
+  elements.bmideMessage.textContent = text;
+  elements.bmideMessage.className = `bmide-message ${type === "neutral" ? "" : type}`.trim();
+}
+
+function renderBmide() {
+  if (!elements.bmideStatusCard) {
+    return;
+  }
+
+  if (elements.bmideName && !elements.bmideName.value) {
+    elements.bmideName.value = readBmideName();
+  }
+
+  const isTaken = bmideStatus.isTaken;
+  elements.bmideStatusCard.classList.toggle("taken", isTaken);
+  elements.bmideStatusCard.classList.toggle("free", !isTaken);
+  elements.bmideState.textContent = isTaken ? "BMIDE indisponible" : "BMIDE libre";
+  elements.bmideOwner.textContent = isTaken
+    ? `Pris par ${bmideStatus.takenBy || "quelqu'un"}`
+    : "Disponible";
+  elements.bmideSince.textContent = isTaken
+    ? `Depuis ${formatDateTime(bmideStatus.takenAt)}`
+    : `Dernière mise à jour ${formatDateTime(bmideStatus.updatedAt)}`;
+  elements.bmideToggle.textContent = isTaken ? "Libérer le BMIDE" : "Prendre le BMIDE";
+  elements.bmideToggle.classList.toggle("taken", isTaken);
+  elements.bmideToggle.classList.toggle("free", !isTaken);
+  elements.bmideToggle.disabled = !isBmideRemoteReady;
+  elements.bmideRefresh.disabled = false;
+
+  if (!isBmideRemoteReady) {
+    setBmideMessage("Connexion Supabase en cours...", "warning");
+  } else {
+    setBmideMessage(isTaken ? "Le BMIDE est déjà pris." : "Le BMIDE est disponible.", isTaken ? "error" : "success");
+  }
+}
+
+async function loadRemoteBmideStatus() {
+  if (!supabaseClient) {
+    isBmideRemoteReady = false;
+    renderBmide();
+    setBmideMessage("Supabase n'a pas chargé. Vérifie ta connexion internet.", "error");
+    return;
+  }
+
+  const { data, error } = await supabaseClient
+    .from(BMIDE_TABLE_NAME)
+    .select("is_taken,taken_by,taken_at,updated_at")
+    .eq("id", "main")
+    .maybeSingle();
+
+  if (error) {
+    isBmideRemoteReady = false;
+    renderBmide();
+    setBmideMessage(`Erreur Supabase: ${error.message}`, "error");
+    return;
+  }
+
+  if (!data) {
+    const { error: insertError } = await supabaseClient
+      .from(BMIDE_TABLE_NAME)
+      .insert({ id: "main", is_taken: false, updated_at: new Date().toISOString() });
+
+    if (insertError) {
+      isBmideRemoteReady = false;
+      renderBmide();
+      setBmideMessage(`Initialisation BMIDE impossible: ${insertError.message}`, "error");
+      return;
+    }
+
+    bmideStatus = { isTaken: false, takenBy: "", takenAt: "", updatedAt: new Date().toISOString() };
+  } else {
+    bmideStatus = rowToBmideStatus(data);
+  }
+
+  isBmideRemoteReady = true;
+  renderBmide();
+}
+
+async function setRemoteBmideStatus(isTaken) {
+  if (!isBmideRemoteReady) {
+    return;
+  }
+
+  const cleanName = elements.bmideName?.value.trim() || "";
+  if (isTaken && !cleanName) {
+    setBmideMessage("Renseigne ton nom avant de prendre le BMIDE.", "warning");
+    elements.bmideName?.focus();
+    return;
+  }
+
+  saveBmideName(cleanName);
+  const now = new Date().toISOString();
+  const nextStatus = {
+    isTaken,
+    takenBy: isTaken ? cleanName : "",
+    takenAt: isTaken ? now : "",
+    updatedAt: now,
+  };
+
+  bmideStatus = nextStatus;
+  renderBmide();
+
+  const { error } = await supabaseClient
+    .from(BMIDE_TABLE_NAME)
+    .upsert(
+      {
+        id: "main",
+        is_taken: isTaken,
+        taken_by: isTaken ? cleanName : null,
+        taken_at: isTaken ? now : null,
+        updated_at: now,
+      },
+      { onConflict: "id" },
+    );
+
+  if (error) {
+    setBmideMessage(`Sauvegarde BMIDE impossible: ${error.message}`, "error");
+    await loadRemoteBmideStatus();
+    return;
+  }
+
+  setBmideMessage(isTaken ? `${cleanName} a pris le BMIDE.` : "Le BMIDE est libre.", isTaken ? "error" : "success");
+}
+
+function toggleBmideStatus() {
+  setRemoteBmideStatus(!bmideStatus.isTaken);
+}
+
 async function loadRemoteNotes() {
   if (!supabaseClient) {
     isNoteRemoteReady = false;
@@ -726,9 +1037,9 @@ async function loadRemoteLinks() {
   renderLinks();
 }
 
-async function addNote(text, reminderDate) {
-  const cleanText = text.trim();
-  if (!cleanText) {
+async function addNote(noteHtml, reminderDate) {
+  const cleanHtml = sanitizeNoteHtml(noteHtml);
+  if (!getNoteEditorText()) {
     return;
   }
 
@@ -746,7 +1057,7 @@ async function addNote(text, reminderDate) {
     .from(NOTE_TABLE_NAME)
     .insert({
       note_date: selectedDate,
-      note_text: cleanText,
+      note_text: cleanHtml,
       is_done: false,
       reminder_date: reminderDate || null,
       position: nextPosition,
@@ -761,8 +1072,7 @@ async function addNote(text, reminderDate) {
   }
 
   notes.push(rowToNote(data));
-  elements.noteInput.value = "";
-  elements.noteReminder.value = "";
+  clearNoteForm();
   renderNotes();
 }
 
@@ -922,6 +1232,11 @@ function render() {
 
   if (currentPage === "links") {
     renderLinks();
+    return;
+  }
+
+  if (currentPage === "bmide") {
+    renderBmide();
     return;
   }
 
@@ -1130,13 +1445,28 @@ function bindEvents() {
   if (elements.noteForm) {
     elements.noteForm.addEventListener("submit", (event) => {
       event.preventDefault();
-      addNote(elements.noteInput.value, elements.noteReminder.value);
+      addNote(getNoteEditorHtml(), elements.noteReminder.disabled ? "" : elements.noteReminder.value);
     });
   }
 
+  elements.noteFormatButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      elements.noteEditor?.focus();
+      document.execCommand(button.dataset.noteFormat, false);
+    });
+  });
+
+  elements.noteEditor?.addEventListener("paste", (event) => {
+    event.preventDefault();
+    const pastedText = event.clipboardData.getData("text/plain");
+    document.execCommand("insertText", false, pastedText);
+  });
+
+  elements.noteReminderEnabled?.addEventListener("change", syncReminderInput);
+
   if (elements.noteList) {
     elements.noteList.addEventListener("click", (event) => {
-      const row = event.target.closest(".note-row");
+      const row = event.target.closest(".note-card");
       if (!row) {
         return;
       }
@@ -1169,6 +1499,12 @@ function bindEvents() {
       removeLink(row.dataset.linkId);
     });
   }
+
+  elements.bmideToggle?.addEventListener("click", toggleBmideStatus);
+  elements.bmideRefresh?.addEventListener("click", loadRemoteBmideStatus);
+  elements.bmideName?.addEventListener("change", () => {
+    saveBmideName(elements.bmideName.value.trim());
+  });
 
   if (elements.dateInput) {
     elements.dateInput.addEventListener("change", (event) => {
@@ -1230,6 +1566,9 @@ if (currentPage === "notes") {
 }
 if (currentPage === "links") {
   loadRemoteLinks();
+}
+if (currentPage === "bmide") {
+  loadRemoteBmideStatus();
 }
 setInterval(() => {
   if (currentPage === "badgeage") {
