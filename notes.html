@@ -24,19 +24,47 @@
         <a class="menu-button" href="index.html" data-page-link="badgeage">Badgeage</a>
         <a class="menu-button active" href="notes.html" data-page-link="notes">Notes</a>
         <a class="menu-button" href="liens.html" data-page-link="links">Liens</a>
+        <a class="menu-button" href="bmide.html" data-page-link="bmide">BMIDE</a>
         <a class="menu-button" href="historique.html" data-page-link="history">Historique</a>
       </nav>
 
       <main id="notes-view" class="tool-section">
         <div class="section-heading">
           <h2>Notes du jour</h2>
-          <span id="note-count">0 en cours</span>
+          <span id="note-count">0 note</span>
         </div>
 
         <form id="note-form" class="note-form">
-          <input id="note-input" type="text" autocomplete="off" placeholder="Ce que j'ai fait / à retenir" />
-          <input id="note-reminder" type="date" aria-label="Date de rappel" />
-          <button class="primary-button" type="submit">Ajouter</button>
+          <div class="note-editor-shell">
+            <div class="note-toolbar" aria-label="Mise en forme">
+              <button class="format-button" type="button" data-note-format="bold" title="Gras">
+                <strong>B</strong>
+              </button>
+              <button class="format-button" type="button" data-note-format="italic" title="Italique">
+                <em>I</em>
+              </button>
+              <button class="format-button" type="button" data-note-format="underline" title="Souligné">
+                <u>U</u>
+              </button>
+            </div>
+            <div
+              id="note-editor"
+              class="note-editor"
+              contenteditable="true"
+              role="textbox"
+              aria-label="Contenu de la note"
+              data-placeholder="Écris une note, un point important, une procédure, un rappel..."
+            ></div>
+          </div>
+
+          <div class="note-options">
+            <label class="reminder-toggle">
+              <input id="note-reminder-enabled" type="checkbox" />
+              <span>Définir un rappel</span>
+            </label>
+            <input id="note-reminder" class="reminder-date" type="date" aria-label="Date de rappel" disabled hidden />
+            <button class="primary-button" type="submit">Ajouter la note</button>
+          </div>
         </form>
 
         <div id="note-list" class="item-list"></div>

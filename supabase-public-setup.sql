@@ -1,12 +1,14 @@
 create table if not exists public.work_days_public (
   work_date date primary key,
-  target_minutes integer not null default 480,
+  target_minutes integer not null default 465,
   arrival time,
   lunch_out time,
   lunch_in time,
   departure time,
   updated_at timestamptz not null default now()
 );
+
+alter table public.work_days_public alter column target_minutes set default 465;
 
 alter table public.work_days_public enable row level security;
 
@@ -130,3 +132,43 @@ to anon
 using (true);
 
 grant select, insert, update, delete on public.quick_links_public to anon;
+
+create table if not exists public.bmide_status_public (
+  id text primary key default 'main',
+  is_taken boolean not null default false,
+  taken_by text,
+  taken_at timestamptz,
+  updated_at timestamptz not null default now(),
+  constraint bmide_status_single_row check (id = 'main')
+);
+
+insert into public.bmide_status_public (id, is_taken)
+values ('main', false)
+on conflict (id) do nothing;
+
+alter table public.bmide_status_public enable row level security;
+
+drop policy if exists "Acces public lecture bmide" on public.bmide_status_public;
+drop policy if exists "Acces public creation bmide" on public.bmide_status_public;
+drop policy if exists "Acces public modification bmide" on public.bmide_status_public;
+
+create policy "Acces public lecture bmide"
+on public.bmide_status_public
+for select
+to anon
+using (true);
+
+create policy "Acces public creation bmide"
+on public.bmide_status_public
+for insert
+to anon
+with check (id = 'main');
+
+create policy "Acces public modification bmide"
+on public.bmide_status_public
+for update
+to anon
+using (id = 'main')
+with check (id = 'main');
+
+grant select, insert, update on public.bmide_status_public to anon;
