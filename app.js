@@ -1,7 +1,11 @@
 "use strict";
 
-const SUPABASE_URL = "https://ahdbrkiuerbhtfmteobt.supabase.co";
-const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_PZL56Nw8eE77QZ8c78SuaA_Hpkhy8qE";
+const DEFAULT_APP_CONFIG = {
+  supabaseUrl: "https://ahdbrkiuerbhtfmteobt.supabase.co",
+  supabasePublishableKey: "sb_publishable_PZL56Nw8eE77QZ8c78SuaA_Hpkhy8qE",
+  bmideNotifyFunctionName: "notify-bmide",
+  teamsWebhookUrl: "",
+};
 const TABLE_NAME = "work_days_public";
 const NOTE_TABLE_NAME = "work_notes_public";
 const LINK_TABLE_NAME = "quick_links_public";
@@ -24,10 +28,6 @@ const QUICK_BUTTON_LABELS = {
   departure: "Badger le départ boulot",
 };
 
-const supabaseClient = window.supabase?.createClient(
-  SUPABASE_URL,
-  SUPABASE_PUBLISHABLE_KEY,
-);
 const currentPage = document.body.dataset.page || "badgeage";
 
 const fieldInputs = Object.fromEntries(
@@ -80,6 +80,8 @@ let records = {};
 let notes = [];
 let quickLinks = [];
 let bmideStatus = { isTaken: false, takenBy: "", takenAt: "", updatedAt: "" };
+let appConfig = { ...DEFAULT_APP_CONFIG };
+let supabaseClient = null;
 let selectedDate = readSelectedDate();
 let isTargetLocked = true;
 let isRemoteReady = false;
@@ -101,6 +103,36 @@ function todayISO() {
 function readSelectedDate() {
   const date = new URLSearchParams(window.location.search).get("date");
   return date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayISO();
+}
+
+async function loadAppConfig() {
+  try {
+    const response = await fetch("config.json", { cache: "no-store" });
+    if (!response.ok) {
+      return { ...DEFAULT_APP_CONFIG };
+    }
+
+    const config = await response.json();
+    return {
+      supabaseUrl: config.supabaseUrl || DEFAULT_APP_CONFIG.supabaseUrl,
+      supabasePublishableKey: config.supabasePublishableKey || DEFAULT_APP_CONFIG.supabasePublishableKey,
+      bmideNotifyFunctionName: config.bmideNotifyFunctionName || DEFAULT_APP_CONFIG.bmideNotifyFunctionName,
+      teamsWebhookUrl: config.teamsWebhookUrl || DEFAULT_APP_CONFIG.teamsWebhookUrl,
+    };
+  } catch {
+    return { ...DEFAULT_APP_CONFIG };
+  }
+}
+
+function createSupabaseClient() {
+  if (!window.supabase || !appConfig.supabaseUrl || !appConfig.supabasePublishableKey) {
+    return null;
+  }
+
+  return window.supabase.createClient(
+    appConfig.supabaseUrl,
+    appConfig.supabasePublishableKey,
+  );
 }
 
 function buildPageHref(pageName) {
@@ -927,6 +959,69 @@ async function loadRemoteBmideStatus() {
   renderBmide();
 }
 
+async function notifyBmideTeams(isTaken, name) {
+  try {
+    if (appConfig.teamsWebhookUrl) {
+      const event = isTaken ? "taken" : "released";
+      const time = new Intl.DateTimeFormat("fr-FR", {
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(new Date());
+      const card = {
+        type: "AdaptiveCard",
+        $schema: "http://adaptivecards.io/schemas/adaptive-card.json",
+        version: "1.4",
+        body: [
+          {
+            type: "TextBlock",
+            text: event === "taken" ? "BMIDE pris" : "BMIDE libéré",
+            weight: "Bolder",
+            size: "Medium",
+            color: event === "taken" ? "Attention" : "Good",
+          },
+          {
+            type: "FactSet",
+            facts: [
+              { title: "Personne", value: name || "Quelqu'un" },
+              { title: "Heure", value: time },
+            ],
+          },
+        ],
+      };
+      const response = await fetch(appConfig.teamsWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(card),
+      });
+
+      if (!response.ok) {
+        return { ok: false, error: await response.text() || "Erreur Teams" };
+      }
+
+      return { ok: true };
+    }
+
+    if (!supabaseClient) {
+      return { ok: false, error: "Supabase n'a pas chargé." };
+    }
+
+    const { error } = await supabaseClient.functions.invoke(appConfig.bmideNotifyFunctionName, {
+      body: {
+        event: isTaken ? "taken" : "released",
+        name: name || "Quelqu'un",
+      },
+    });
+
+    if (error) {
+      return { ok: false, error: error.message || "Erreur inconnue" };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, error: error.message || "Erreur inconnue" };
+  }
+}
+
 async function setRemoteBmideStatus(isTaken) {
   if (!isBmideRemoteReady) {
     return;
@@ -970,7 +1065,15 @@ async function setRemoteBmideStatus(isTaken) {
     return;
   }
 
-  setBmideMessage(isTaken ? `${cleanName} a pris le BMIDE.` : "Le BMIDE est libre.", isTaken ? "error" : "success");
+  const notification = await notifyBmideTeams(isTaken, cleanName);
+  const statusMessage = isTaken ? `${cleanName} a pris le BMIDE.` : "Le BMIDE est libre.";
+
+  if (!notification.ok) {
+    setBmideMessage(`${statusMessage} Notification Teams non envoyée: ${notification.error}`, "warning");
+    return;
+  }
+
+  setBmideMessage(`${statusMessage} Notification Teams envoyée.`, isTaken ? "error" : "success");
 }
 
 function toggleBmideStatus() {
@@ -1556,22 +1659,30 @@ function bindEvents() {
   }
 }
 
-bindEvents();
-render();
-if (currentPage === "badgeage" || currentPage === "history") {
-  loadRemoteRecords();
-}
-if (currentPage === "notes") {
-  loadRemoteNotes();
-}
-if (currentPage === "links") {
-  loadRemoteLinks();
-}
-if (currentPage === "bmide") {
-  loadRemoteBmideStatus();
-}
-setInterval(() => {
-  if (currentPage === "badgeage") {
-    render();
+async function startApp() {
+  appConfig = await loadAppConfig();
+  supabaseClient = createSupabaseClient();
+  bindEvents();
+  render();
+
+  if (currentPage === "badgeage" || currentPage === "history") {
+    loadRemoteRecords();
   }
-}, 30_000);
+  if (currentPage === "notes") {
+    loadRemoteNotes();
+  }
+  if (currentPage === "links") {
+    loadRemoteLinks();
+  }
+  if (currentPage === "bmide") {
+    loadRemoteBmideStatus();
+  }
+
+  setInterval(() => {
+    if (currentPage === "badgeage") {
+      render();
+    }
+  }, 30_000);
+}
+
+startApp();
