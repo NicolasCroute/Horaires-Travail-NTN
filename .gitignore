@@ -1,3 +1,5 @@
 Info
 .env
 .env.*
+config.json
+supabase/.temp/
